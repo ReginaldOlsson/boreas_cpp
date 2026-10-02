@@ -29,6 +29,7 @@ BoreasParameters load_parameters(rclcpp::Node & node)
   params.topics.camera_ground_truth = node.declare_parameter<std::string>(
     "camera_ground_truth_topic", "/boreas/ground_truth/camera_odom");
   params.topics.gnss = node.declare_parameter<std::string>("gnss_topic", "/boreas/gnss/fix");
+  params.topics.imu = node.declare_parameter<std::string>("imu_topic", "/boreas/imu");
   params.topics.map_projector_info =
     node.declare_parameter<std::string>("map_projector_info_topic", "/map/map_projector_info");
 
@@ -43,11 +44,13 @@ BoreasParameters load_parameters(rclcpp::Node & node)
   params.frames.camera_odom =
     node.declare_parameter<std::string>("camera_odom_frame", "camera_odom");
   params.frames.gnss = node.declare_parameter<std::string>("gnss_frame", "applanix");
+  params.frames.imu = node.declare_parameter<std::string>("imu_frame", "imu");
   params.frames.ground_truth_parent =
     node.declare_parameter<std::string>("ground_truth_parent_frame", "map");
 
   params.map_projector_info_path =
     node.declare_parameter<std::string>("map_projector_info_path", "");
+  params.imu_csv = node.declare_parameter<std::string>("imu_csv", "imu_raw.csv");
   params.base_link_to_lidar_yaw_deg =
     node.declare_parameter<double>("base_link_to_lidar_yaw_deg", -45.0);
   params.export_flags.use_precomputed_static_tf =
@@ -58,6 +61,7 @@ BoreasParameters load_parameters(rclcpp::Node & node)
     node.declare_parameter<bool>("write_ground_truth", true);
   params.export_flags.write_tf = node.declare_parameter<bool>("write_tf", true);
   params.export_flags.write_gnss = node.declare_parameter<bool>("write_gnss", true);
+  params.export_flags.write_imu = node.declare_parameter<bool>("write_imu", true);
 
   params.image_compression_format =
     node.declare_parameter<std::string>("image_compression_format", "png");

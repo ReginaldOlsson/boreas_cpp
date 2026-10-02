@@ -50,6 +50,7 @@ private:
   Eigen::Isometry3d map_sensor_to_odom_transform(
     const Eigen::Isometry3d & T_map_sensor, std::optional<Eigen::Isometry3d> & odom_reference) const;
   void write_gnss_sample_to_bag(const GnssSample & sample, const rclcpp::Time & stamp);
+  void write_imu_sample_to_bag(const ImuSample & sample, const rclcpp::Time & stamp);
   void write_lidar_frame(int64_t timestamp_us, const std::string & frame_path);
   void write_camera_frame(int64_t timestamp_us, const std::string & frame_path);
 
@@ -69,6 +70,7 @@ private:
   std::unordered_map<int64_t, BoreasPose> lidar_poses_;
   std::unordered_map<int64_t, BoreasPose> camera_poses_;
   std::vector<GnssSample> gnss_samples_;
+  std::vector<ImuSample> imu_samples_;
 
   std::vector<TimestampedPath> lidar_frames_;
   std::vector<TimestampedPath> camera_frames_;

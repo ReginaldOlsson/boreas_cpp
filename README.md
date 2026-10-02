@@ -2,17 +2,19 @@
 
 Convert a [Boreas](https://www.boreas.utias.utoronto.ca/) sequence on disk into a ROS 2 bag for playback in RViz, Autoware, or other tools.
 
-The node reads lidar `.bin` frames, camera `.png` images, Applanix ground truth, and calibration files, then writes a time-synchronized bag with `/clock`, sensor topics, optional ground truth, and a connected TF tree.
+The node reads lidar `.bin` frames, camera `.png` images, Applanix ground truth / GNSS / IMU, and calibration files, then writes a time-synchronized bag with `/clock`, sensor topics, optional ground truth, and a connected TF tree.
 
 ## TF tree
 
 ```
 map ──(/tf, dynamic, GNSS+UTM)──► applanix ──(/tf_static)──► base_link ──(/tf_static)──► lidar ──(/tf)──► lidar_odom
-                                                      └──(/tf_static)──► camera_lidar ──(/tf)──► camera_odom
+                                    │               └──(/tf_static)──► camera_lidar ──(/tf)──► camera_odom
+                                    └──(/tf_static)──► imu
 ```
 
 - **`map → applanix`** on `/tf` — GNSS from `gps_post_process.csv` (Applanix INS frame) interpolated at lidar stamps, projected via `map_projector_info.yaml`.
 - **`applanix → base_link`** on `/tf_static` — from `T_applanix_lidar.txt` and `base_link → lidar` (`T_applanix_base = T_applanix_lidar × inv(T_base_link_lidar)`).
+- **`applanix → imu`** on `/tf_static` — co-located (zero translation); **Rz(-90°)** for a right-handed IMU frame (x-back, y-right, z-up). `imu_raw.csv` is x-back / y-left / z-up (left-handed). The bag converts it into that right-handed frame before publishing: acceleration Y is negated, and gyro X and Z are negated. Post-processed `imu.csv` is left unchanged and should use `imu_frame: applanix`.
 - **`base_link → lidar`** on `/tf_static` — yaw-only offset (default **-45°**), zero translation.
 - **`base_link → camera_lidar`** on `/tf_static` — `T_base_link_lidar × inv(T_camera_lidar)` from Boreas calibration.
 - **`lidar → lidar_odom`** on `/tf` — `inv(T_enu_lidar)` from `lidar_poses.csv` at each lidar stamp.
@@ -64,6 +66,7 @@ boreas-YYYY-MM-DD-HH-MM/
     lidar_poses.csv
     camera_poses.csv
     gps_post_process.csv
+    imu_raw.csv          # default IMU source (or imu.csv)
   calib/
     T_camera_lidar.txt
 ```
@@ -105,12 +108,13 @@ Launch arguments:
 | `/boreas/image/compressed` | `sensor_msgs/CompressedImage` | Frame: `camera_lidar` |
 | `/boreas/camera_info` | `sensor_msgs/CameraInfo` | |
 | `/tf` | `tf2_msgs/TFMessage` | `map→applanix`, `lidar→lidar_odom`, `camera_lidar→camera_odom` |
-| `/tf_static` | `tf2_msgs/TFMessage` | `applanix→base_link`, `base_link→{lidar, camera_lidar}` |
+| `/tf_static` | `tf2_msgs/TFMessage` | `applanix→base_link`, `applanix→imu`, `base_link→{lidar, camera_lidar}` |
 | `/map/map_projector_info` | `autoware_map_msgs/MapProjectorInfo` | Transient local; matches Autoware map |
 | `/clock` | `rosgraph_msgs/Clock` | Use with `--clock` on play |
 | `/boreas/ground_truth/lidar_odom` | `nav_msgs/Odometry` | Optional |
 | `/boreas/ground_truth/camera_odom` | `nav_msgs/Odometry` | Optional |
 | `/boreas/gnss/fix` | `sensor_msgs/NavSatFix` | Frame: `applanix`; 200 Hz |
+| `/boreas/imu` | `sensor_msgs/Imu` | Frame: `imu`; from `applanix/imu_raw.csv` at 200 Hz (angvel + accel; orientation unset), converted from the left-handed raw axes into the right-handed `imu` frame. Linked via static `applanix→imu` (Rz(-90°)). For post-processed `imu.csv`, set `imu_csv: imu.csv` and `imu_frame: applanix` (no axis conversion). |
 
 ## Playback
 

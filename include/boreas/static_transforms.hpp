@@ -17,6 +17,7 @@ struct StaticTransformSet
   Eigen::Isometry3d applanix_to_lidar{Eigen::Isometry3d::Identity()};
   Eigen::Isometry3d applanix_to_camera_lidar{Eigen::Isometry3d::Identity()};
   geometry_msgs::msg::TransformStamped applanix_to_base_link;
+  geometry_msgs::msg::TransformStamped applanix_to_imu;
   geometry_msgs::msg::TransformStamped base_link_to_lidar;
   geometry_msgs::msg::TransformStamped base_link_to_camera_lidar;
 };

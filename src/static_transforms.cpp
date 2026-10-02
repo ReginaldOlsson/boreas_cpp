@@ -65,10 +65,25 @@ StaticTransformSet load_static_transforms(rclcpp::Node & node, const BoreasParam
   const Eigen::Isometry3d applanix_to_base_link = applanix_to_lidar * base_link_to_lidar.inverse();
   const Eigen::Isometry3d applanix_to_camera_lidar = applanix_to_lidar * camera_to_lidar.inverse();
 
+  // Co-located Applanix IMU; right-handed Rz(-90 deg): x-back, y-right, z-up
+  Eigen::Isometry3d applanix_to_imu = yaw_only_isometry(-90.0);
+  const auto imu_translation = node.declare_parameter<std::vector<double>>(
+    "applanix_to_imu.translation", std::vector<double>{});
+  const auto imu_rotation =
+    node.declare_parameter<std::vector<double>>("applanix_to_imu.rotation", std::vector<double>{});
+  if (imu_translation.size() == 3 && imu_rotation.size() == 4) {
+    applanix_to_imu = params_to_isometry(imu_translation, imu_rotation);
+  } else {
+    RCLCPP_WARN(
+      logger, "applanix_to_imu params missing; using default Rz(-90 deg) with zero translation");
+  }
+
   transforms.applanix_to_lidar = applanix_to_lidar;
   transforms.applanix_to_camera_lidar = applanix_to_camera_lidar;
   transforms.applanix_to_base_link =
     isometry_to_transform(applanix_to_base_link, params.frames.applanix, params.frames.base_link);
+  transforms.applanix_to_imu =
+    isometry_to_transform(applanix_to_imu, params.frames.applanix, params.frames.imu);
   transforms.base_link_to_lidar =
     isometry_to_transform(base_link_to_lidar, params.frames.base_link, params.frames.lidar);
   transforms.base_link_to_camera_lidar = isometry_to_transform(
@@ -78,9 +93,10 @@ StaticTransformSet load_static_transforms(rclcpp::Node & node, const BoreasParam
   const auto & t_ap_bl = applanix_to_base_link.translation();
   RCLCPP_INFO(
     logger,
-    "Static TF: %s -> %s (t=[%.3f, %.3f, %.3f]), %s -> %s (yaw %.1f deg), %s -> %s (from %s)",
+    "Static TF: %s -> %s (t=[%.3f, %.3f, %.3f]), %s -> %s, %s -> %s (yaw %.1f deg), %s -> %s (from %s)",
     params.frames.applanix.c_str(), params.frames.base_link.c_str(), t_ap_bl.x(), t_ap_bl.y(),
-    t_ap_bl.z(), params.frames.base_link.c_str(), params.frames.lidar.c_str(),
+    t_ap_bl.z(), params.frames.applanix.c_str(), params.frames.imu.c_str(),
+    params.frames.base_link.c_str(), params.frames.lidar.c_str(),
     params.base_link_to_lidar_yaw_deg, params.frames.base_link.c_str(),
     params.frames.camera_lidar.c_str(), params.paths.applanix_to_lidar_calib.c_str());
 

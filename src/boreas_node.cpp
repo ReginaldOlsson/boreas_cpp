@@ -106,7 +106,7 @@ void BoreasNode::register_bag_topics()
 bool BoreasNode::load_ground_truth_data()
 {
   const auto & flags = params_.export_flags;
-  if (!flags.write_ground_truth && !flags.write_gnss && !flags.write_tf) {
+  if (!flags.write_ground_truth && !flags.write_gnss && !flags.write_tf && !flags.write_imu) {
     ground_truth_ready_ = true;
     return true;
   }
@@ -114,6 +114,7 @@ bool BoreasNode::load_ground_truth_data()
   const std::string lidar_pose_path = params_.paths.applanix + "/lidar_poses.csv";
   const std::string camera_pose_path = params_.paths.applanix + "/camera_poses.csv";
   const std::string gnss_path = params_.paths.applanix + "/gps_post_process.csv";
+  const std::string imu_path = params_.paths.applanix + "/" + params_.imu_csv;
 
   if (flags.write_ground_truth || flags.write_tf) {
     if (!load_pose_csv(lidar_pose_path, lidar_poses_)) {
@@ -139,6 +140,20 @@ bool BoreasNode::load_ground_truth_data()
     }
   }
 
+  if (flags.write_imu) {
+    if (!load_imu_csv(imu_path, imu_samples_)) {
+      RCLCPP_WARN(get_logger(), "Failed to load IMU data: %s", imu_path.c_str());
+    } else {
+      RCLCPP_INFO(
+        get_logger(), "Loaded %zu IMU samples from %s", imu_samples_.size(), imu_path.c_str());
+      if (imu_csv_is_left_handed_raw(params_.imu_csv)) {
+        RCLCPP_INFO(
+          get_logger(),
+          "imu_raw is left-handed. Publishing the right-handed imu frame (negate ay, wx, wz).");
+      }
+    }
+  }
+
   ground_truth_ready_ = true;
   return true;
 }
@@ -153,18 +168,21 @@ void BoreasNode::write_static_transform_to_bag()
   const rclcpp::Time stamp(0, 0, RCL_ROS_TIME);
   tf2_msgs::msg::TFMessage tf_msg;
   static_transforms_.applanix_to_base_link.header.stamp = stamp;
+  static_transforms_.applanix_to_imu.header.stamp = stamp;
   static_transforms_.base_link_to_lidar.header.stamp = stamp;
   static_transforms_.base_link_to_camera_lidar.header.stamp = stamp;
   tf_msg.transforms.push_back(static_transforms_.applanix_to_base_link);
+  tf_msg.transforms.push_back(static_transforms_.applanix_to_imu);
   tf_msg.transforms.push_back(static_transforms_.base_link_to_lidar);
   tf_msg.transforms.push_back(static_transforms_.base_link_to_camera_lidar);
 
   writer_->write(tf_msg, params_.topics.tf_static, stamp);
   RCLCPP_INFO(
-    get_logger(), "Wrote static transforms (%s -> %s, %s -> %s, %s -> %s) on %s",
-    params_.frames.applanix.c_str(), params_.frames.base_link.c_str(), params_.frames.base_link.c_str(),
-    params_.frames.lidar.c_str(), params_.frames.base_link.c_str(),
-    params_.frames.camera_lidar.c_str(), params_.topics.tf_static.c_str());
+    get_logger(), "Wrote static transforms (%s -> %s, %s -> %s, %s -> %s, %s -> %s) on %s",
+    params_.frames.applanix.c_str(), params_.frames.base_link.c_str(), params_.frames.applanix.c_str(),
+    params_.frames.imu.c_str(), params_.frames.base_link.c_str(), params_.frames.lidar.c_str(),
+    params_.frames.base_link.c_str(), params_.frames.camera_lidar.c_str(),
+    params_.topics.tf_static.c_str());
 }
 
 void BoreasNode::write_map_projector_info_to_bag()
@@ -322,6 +340,17 @@ void BoreasNode::write_gnss_sample_to_bag(const GnssSample & sample, const rclcp
   writer_->write(fix, params_.topics.gnss, stamp);
 }
 
+void BoreasNode::write_imu_sample_to_bag(const ImuSample & sample, const rclcpp::Time & stamp)
+{
+  const ImuSample measurement = imu_csv_is_left_handed_raw(params_.imu_csv)
+                                  ? to_right_handed_imu_raw(sample)
+                                  : sample;
+  sensor_msgs::msg::Imu msg = imu_to_ros_msg(measurement);
+  msg.header.frame_id = params_.frames.imu;
+  msg.header.stamp = stamp;
+  writer_->write(msg, params_.topics.imu, stamp);
+}
+
 void BoreasNode::write_lidar_frame(const int64_t timestamp_us, const std::string & frame_path)
 {
   const rclcpp::Time stamp = id_to_stamp(timestamp_us);
@@ -412,6 +441,13 @@ size_t BoreasNode::count_total_messages() const
         return is_within_bag_duration(sample.timestamp_us);
       }));
   }
+  if (params_.export_flags.write_imu) {
+    total += static_cast<size_t>(std::count_if(
+      imu_samples_.begin(), imu_samples_.end(),
+      [this](const ImuSample & sample) {
+        return is_within_bag_duration(sample.timestamp_us);
+      }));
+  }
   return total;
 }
 
@@ -428,14 +464,16 @@ void BoreasNode::write_streams_chronologically()
   size_t lidar_idx = 0;
   size_t camera_idx = 0;
   size_t gnss_idx = 0;
+  size_t imu_idx = 0;
   ProgressBar progress_bar(total_messages_);
 
   while (rclcpp::ok()) {
     const bool has_lidar = lidar_idx < lidar_frames_.size();
     const bool has_camera = camera_idx < camera_frames_.size();
     const bool has_gnss = params_.export_flags.write_gnss && gnss_idx < gnss_samples_.size();
+    const bool has_imu = params_.export_flags.write_imu && imu_idx < imu_samples_.size();
 
-    if (!has_lidar && !has_camera && !has_gnss) {
+    if (!has_lidar && !has_camera && !has_gnss && !has_imu) {
       break;
     }
 
@@ -448,6 +486,9 @@ void BoreasNode::write_streams_chronologically()
     }
     if (has_gnss) {
       next_timestamp_us = std::min(next_timestamp_us, gnss_samples_[gnss_idx].timestamp_us);
+    }
+    if (has_imu) {
+      next_timestamp_us = std::min(next_timestamp_us, imu_samples_[imu_idx].timestamp_us);
     }
 
     if (!is_within_bag_duration(next_timestamp_us)) {
@@ -473,6 +514,15 @@ void BoreasNode::write_streams_chronologically()
       messages_written_++;
       progress_bar.update(messages_written_);
       gnss_idx++;
+    }
+
+    if (has_imu && imu_samples_[imu_idx].timestamp_us == next_timestamp_us) {
+      const rclcpp::Time stamp = id_to_stamp(next_timestamp_us);
+      write_imu_sample_to_bag(imu_samples_[imu_idx], stamp);
+      write_clock_to_bag(stamp);
+      messages_written_++;
+      progress_bar.update(messages_written_);
+      imu_idx++;
     }
   }
 
@@ -535,6 +585,9 @@ void BoreasNode::export_bag_when_ready()
   if (params_.export_flags.write_gnss && !gnss_samples_.empty()) {
     time_origin_us_ = std::min(time_origin_us_, gnss_samples_.front().timestamp_us);
   }
+  if (params_.export_flags.write_imu && !imu_samples_.empty()) {
+    time_origin_us_ = std::min(time_origin_us_, imu_samples_.front().timestamp_us);
+  }
 
   if (params_.bag_duration_sec > 0.0) {
     bag_end_timestamp_us_ =
@@ -554,8 +607,25 @@ void BoreasNode::export_bag_when_ready()
   write_map_projector_info_to_bag();
 
   total_messages_ = count_total_messages();
+  const size_t gnss_in_window =
+    params_.export_flags.write_gnss
+      ? static_cast<size_t>(std::count_if(
+          gnss_samples_.begin(), gnss_samples_.end(),
+          [this](const GnssSample & sample) {
+            return is_within_bag_duration(sample.timestamp_us);
+          }))
+      : 0;
+  const size_t imu_in_window =
+    params_.export_flags.write_imu
+      ? static_cast<size_t>(std::count_if(
+          imu_samples_.begin(), imu_samples_.end(),
+          [this](const ImuSample & sample) {
+            return is_within_bag_duration(sample.timestamp_us);
+          }))
+      : 0;
   RCLCPP_INFO(
-    get_logger(), "Writing up to %zu messages (%zu lidar, %zu camera, %zu gnss in window) to %s",
+    get_logger(),
+    "Writing up to %zu messages (%zu lidar, %zu camera, %zu gnss, %zu imu in window) to %s",
     total_messages_,
     static_cast<size_t>(std::count_if(
       lidar_frames_.begin(), lidar_frames_.end(),
@@ -563,14 +633,7 @@ void BoreasNode::export_bag_when_ready()
     static_cast<size_t>(std::count_if(
       camera_frames_.begin(), camera_frames_.end(),
       [this](const auto & entry) { return is_within_bag_duration(entry.first); })),
-    params_.export_flags.write_gnss
-      ? static_cast<size_t>(std::count_if(
-          gnss_samples_.begin(), gnss_samples_.end(),
-          [this](const GnssSample & sample) {
-            return is_within_bag_duration(sample.timestamp_us);
-          }))
-      : 0,
-    params_.output_bag.c_str());
+    gnss_in_window, imu_in_window, params_.output_bag.c_str());
 
   write_streams_chronologically();
   export_done_ = true;

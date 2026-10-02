@@ -31,6 +31,7 @@ struct TopicNames
   std::string lidar_ground_truth;
   std::string camera_ground_truth;
   std::string gnss;
+  std::string imu;
   std::string map_projector_info;
 };
 
@@ -44,6 +45,7 @@ struct FrameNames
   std::string lidar_odom;
   std::string camera_odom;
   std::string gnss;
+  std::string imu;
   std::string ground_truth_parent;
 };
 
@@ -52,6 +54,7 @@ struct ExportFlags
   bool write_ground_truth{true};
   bool write_tf{true};
   bool write_gnss{true};
+  bool write_imu{true};
   bool write_map_projector_info{true};
   bool use_precomputed_static_tf{true};
 };
@@ -67,6 +70,7 @@ struct BoreasParameters
   std::string storage_id{"sqlite3"};
   std::string image_compression_format{"png"};
   std::string map_projector_info_path;
+  std::string imu_csv{"imu_raw.csv"};
 
   sensor_msgs::msg::CameraInfo camera_info;
 

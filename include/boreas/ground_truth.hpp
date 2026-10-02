@@ -6,6 +6,7 @@
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/nav_sat_fix.hpp>
 
 #include <autoware/geography_utils/height.hpp>
@@ -54,6 +55,18 @@ struct GnssSample
   double roll{0.0};
   double pitch{0.0};
   double heading{0.0};
+};
+
+struct ImuSample
+{
+  int64_t timestamp_us{0};
+  double gps_time_sec{0.0};
+  double angvel_x{0.0};
+  double angvel_y{0.0};
+  double angvel_z{0.0};
+  double accel_x{0.0};
+  double accel_y{0.0};
+  double accel_z{0.0};
 };
 
 inline Eigen::Matrix3d barfoot_yaw_rotation(double yaw)
@@ -198,6 +211,36 @@ inline sensor_msgs::msg::NavSatFix gnss_to_nav_sat_fix(const GnssSample & sample
   return fix;
 }
 
+inline sensor_msgs::msg::Imu imu_to_ros_msg(const ImuSample & sample)
+{
+  sensor_msgs::msg::Imu msg;
+  msg.orientation_covariance[0] = -1.0;
+  msg.angular_velocity.x = sample.angvel_x;
+  msg.angular_velocity.y = sample.angvel_y;
+  msg.angular_velocity.z = sample.angvel_z;
+  msg.linear_acceleration.x = sample.accel_x;
+  msg.linear_acceleration.y = sample.accel_y;
+  msg.linear_acceleration.z = sample.accel_z;
+  return msg;
+}
+
+/// imu_raw.csv is left-handed (x-back, y-left, z-up). The imu frame is the right-handed
+/// stand-in (x-back, y-right, z-up) used by applanix -> imu. A polar vector negates Y.
+/// Angular velocity is axial, so that reflection negates X and Z as well.
+inline bool imu_csv_is_left_handed_raw(const std::string & imu_csv)
+{
+  return imu_csv.find("imu_raw") != std::string::npos;
+}
+
+inline ImuSample to_right_handed_imu_raw(const ImuSample & sample)
+{
+  ImuSample right_handed = sample;
+  right_handed.accel_y = -sample.accel_y;
+  right_handed.angvel_x = -sample.angvel_x;
+  right_handed.angvel_z = -sample.angvel_z;
+  return right_handed;
+}
+
 inline bool load_pose_csv(
   const std::string & path, std::unordered_map<int64_t, BoreasPose> & poses)
 {
@@ -280,6 +323,47 @@ inline bool load_gnss_csv(const std::string & path, std::vector<GnssSample> & sa
     sample.roll = values[7];
     sample.pitch = values[8];
     sample.heading = values[9];
+    samples.push_back(sample);
+  }
+
+  return !samples.empty();
+}
+
+inline bool load_imu_csv(const std::string & path, std::vector<ImuSample> & samples)
+{
+  std::ifstream file(path);
+  if (!file.is_open()) {
+    return false;
+  }
+
+  std::string line;
+  std::getline(file, line);
+
+  while (std::getline(file, line)) {
+    if (line.empty()) {
+      continue;
+    }
+
+    std::stringstream ss(line);
+    std::string token;
+    std::vector<double> values;
+    while (std::getline(ss, token, ',')) {
+      values.push_back(std::stod(token));
+    }
+    // GPSTime, angvel_z, angvel_y, angvel_x, accelz, accely, accelx
+    if (values.size() < 7) {
+      continue;
+    }
+
+    ImuSample sample;
+    sample.gps_time_sec = values[0];
+    sample.timestamp_us = static_cast<int64_t>(std::llround(values[0] * 1'000'000.0));
+    sample.angvel_z = values[1];
+    sample.angvel_y = values[2];
+    sample.angvel_x = values[3];
+    sample.accel_z = values[4];
+    sample.accel_y = values[5];
+    sample.accel_x = values[6];
     samples.push_back(sample);
   }
 

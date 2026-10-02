@@ -30,4 +30,18 @@ target_link_libraries(${PROJECT_NAME}
   ${OpenCV_LIBRARIES}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_imu_raw_frame test/test_imu_raw_frame.cpp)
+  target_include_directories(test_imu_raw_frame PRIVATE include)
+  ament_target_dependencies(test_imu_raw_frame
+    sensor_msgs
+    geometry_msgs
+    nav_msgs
+    autoware_geography_utils
+    autoware_map_msgs
+    geographic_msgs
+  )
+endif()
+
 ament_auto_package(INSTALL_TO_SHARE launch config)

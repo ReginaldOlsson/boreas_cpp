@@ -5,6 +5,7 @@
 # Tree:
 #   map -> applanix (dynamic /tf, GNSS + map_projector_info)
 #   applanix -> base_link (static /tf_static, from T_applanix_lidar.txt)
+#   applanix -> imu (static /tf_static, Rz(-90 deg); co-located)
 #   base_link -> {lidar, camera_lidar} (static /tf_static)
 #   lidar -> lidar_odom, camera_lidar -> camera_odom (dynamic /tf, dataset inverse poses)
 /**:
@@ -17,6 +18,7 @@
     lidar_odom_frame: "lidar_odom"
     camera_odom_frame: "camera_odom"
     gnss_frame: "applanix"
+    imu_frame: "imu"
     tf_topic: "/tf"
     tf_static_topic: "/tf_static"
     map_projector_info_path: ""
@@ -34,3 +36,8 @@
     base_link_to_camera_lidar:
       translation: [0.631462188983, -0.002881403405, -0.240947060672]
       rotation: [0.512406320849, -0.496564693816, 0.487312028985, -0.503378837076]  # xyzw
+
+    # applanix -> imu (co-located; Rz(-90 deg) = x-back, y-right, z-up for SO(3))
+    applanix_to_imu:
+      translation: [0.0, 0.0, 0.0]
+      rotation: [0.0, 0.0, -0.707106781187, 0.707106781187]  # xyzw, Rz(-90 deg)

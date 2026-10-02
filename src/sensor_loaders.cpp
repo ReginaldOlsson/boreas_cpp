@@ -1,4 +1,3 @@
-#include <boreas/path_utils.hpp>
 #include <boreas/sensor_loaders.hpp>
 
 #include <opencv2/opencv.hpp>
@@ -29,7 +28,6 @@ sensor_msgs::msg::PointCloud2 load_lidar_pointcloud(
   const uint32_t num_points = static_cast<uint32_t>(file_size / k_point_step);
   const uint32_t stride = static_cast<uint32_t>(std::max(1, downsample_stride));
   const uint32_t out_points = (num_points + stride - 1) / stride;
-  const float scan_time_sec = static_cast<float>(timestamp_us_from_path(path) * 1.0e-6);
 
   sensor_msgs::msg::PointCloud2 msg;
   msg.header.frame_id = frame_id;
@@ -67,7 +65,9 @@ sensor_msgs::msg::PointCloud2 load_lidar_pointcloud(
     *iter_z = point[2];
     *iter_i = point[3];
     *iter_r = point[4];
-    *iter_t = point[5] + scan_time_sec;
+    // Offset from the frame stamp. The header is already on the bag clock.
+    // Adding the raw epoch and storing it in float32 drops the sweep time.
+    *iter_t = point[5];
     ++iter_x;
     ++iter_y;
     ++iter_z;
