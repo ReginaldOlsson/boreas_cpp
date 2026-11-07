@@ -42,6 +42,17 @@ if(BUILD_TESTING)
     autoware_map_msgs
     geographic_msgs
   )
+
+  ament_add_gtest(test_odom_ground_truth test/test_odom_ground_truth.cpp)
+  target_include_directories(test_odom_ground_truth PRIVATE include)
+  ament_target_dependencies(test_odom_ground_truth
+    sensor_msgs
+    geometry_msgs
+    nav_msgs
+    autoware_geography_utils
+    autoware_map_msgs
+    geographic_msgs
+  )
 endif()
 
 ament_auto_package(INSTALL_TO_SHARE launch config)

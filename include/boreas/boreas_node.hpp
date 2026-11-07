@@ -44,6 +44,8 @@ private:
   void write_ground_truth_to_bag(
     int64_t timestamp_us, const rclcpp::Time & stamp, const std::string & topic,
     const std::string & child_frame, const BoreasPose & pose);
+  void write_odom_ground_truth_to_bag(
+    int64_t timestamp_us, const rclcpp::Time & stamp, const BoreasPose & pose);
   bool compute_map_sensor_pose(
     int64_t timestamp_us, const BoreasPose & pose, const Eigen::Isometry3d & T_enu_sensor,
     Eigen::Isometry3d & T_map_sensor) const;

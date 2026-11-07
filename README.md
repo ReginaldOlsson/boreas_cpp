@@ -97,6 +97,7 @@ Launch arguments:
 | `output_bag` | Output bag directory |
 | `bag_duration_sec` | Cap bag length in seconds (`0` = full sequence) |
 | `map_projector_info_path` | Autoware `map_projector_info.yaml` for GNSS→map projection (required for `map→base_link`) |
+| `write_camera` | Record camera stream (`image`, `camera_info`, camera GT/TF); `false` skips all camera work |
 | `config` | Main config (topics, intrinsics, ground truth) |
 | `tf_config` | TF frames and static transforms |
 
@@ -105,14 +106,15 @@ Launch arguments:
 | Topic | Type | Notes |
 |-------|------|-------|
 | `/boreas/pointcloud` | `sensor_msgs/PointCloud2` | Frame: `lidar` |
-| `/boreas/image/compressed` | `sensor_msgs/CompressedImage` | Frame: `camera_lidar` |
-| `/boreas/camera_info` | `sensor_msgs/CameraInfo` | |
+| `/boreas/image/compressed` | `sensor_msgs/CompressedImage` | Frame: `camera_lidar`; optional via `write_camera` |
+| `/boreas/camera_info` | `sensor_msgs/CameraInfo` | Optional via `write_camera` |
 | `/tf` | `tf2_msgs/TFMessage` | `map→applanix`, `lidar→lidar_odom`, `camera_lidar→camera_odom` |
 | `/tf_static` | `tf2_msgs/TFMessage` | `applanix→base_link`, `applanix→imu`, `base_link→{lidar, camera_lidar}` |
 | `/map/map_projector_info` | `autoware_map_msgs/MapProjectorInfo` | Transient local; matches Autoware map |
 | `/clock` | `rosgraph_msgs/Clock` | Use with `--clock` on play |
 | `/boreas/ground_truth/lidar_odom` | `nav_msgs/Odometry` | Optional |
 | `/boreas/ground_truth/camera_odom` | `nav_msgs/Odometry` | Optional |
+| `/boreas/ground_truth/odom` | `nav_msgs/Odometry` | Optional; `map` → `base_link`, twist in `base_link`, lidar rate. With `map_projector_info_path` set, the pose is in the Autoware map. Without it, the pose stays in the local ENU frame of `lidar_poses.csv`. |
 | `/boreas/gnss/fix` | `sensor_msgs/NavSatFix` | Frame: `applanix`; 200 Hz |
 | `/boreas/imu` | `sensor_msgs/Imu` | Frame: `imu`; from `applanix/imu_raw.csv` at 200 Hz (angvel + accel; orientation unset), converted from the left-handed raw axes into the right-handed `imu` frame. Linked via static `applanix→imu` (Rz(-90°)). For post-processed `imu.csv`, set `imu_csv: imu.csv` and `imu_frame: applanix` (no axis conversion). |
 
@@ -129,7 +131,7 @@ In RViz, set **Fixed Frame** to `map` and enable **Use sim time**.
 
 ## Configuration
 
-- [`config/boreas.yaml`](config/boreas.yaml) — bag paths, topics, camera intrinsics, ground-truth/GNSS toggles.
+- [`config/boreas.yaml`](config/boreas.yaml) — bag paths, topics, camera intrinsics, ground-truth/GNSS/IMU/camera toggles.
 - [`config/boreas_tf.yaml`](config/boreas_tf.yaml) — frame names, `map_projector_info_path`, yaw offset, precomputed static transforms.
 
 Key TF parameters:
@@ -140,6 +142,7 @@ base_link_to_lidar_yaw_deg: -45.0
 use_precomputed_static_tf: true   # false = compute from calib/T_camera_lidar.txt
 write_tf: true
 write_map_projector_info: true
+write_camera: true                # false = skip all camera topics / indexing
 ```
 
 ## Examples

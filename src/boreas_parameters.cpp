@@ -28,6 +28,8 @@ BoreasParameters load_parameters(rclcpp::Node & node)
     node.declare_parameter<std::string>("lidar_ground_truth_topic", "/boreas/ground_truth/lidar_odom");
   params.topics.camera_ground_truth = node.declare_parameter<std::string>(
     "camera_ground_truth_topic", "/boreas/ground_truth/camera_odom");
+  params.topics.odom_ground_truth = node.declare_parameter<std::string>(
+    "odom_ground_truth_topic", "/boreas/ground_truth/odom");
   params.topics.gnss = node.declare_parameter<std::string>("gnss_topic", "/boreas/gnss/fix");
   params.topics.imu = node.declare_parameter<std::string>("imu_topic", "/boreas/imu");
   params.topics.map_projector_info =
@@ -62,6 +64,7 @@ BoreasParameters load_parameters(rclcpp::Node & node)
   params.export_flags.write_tf = node.declare_parameter<bool>("write_tf", true);
   params.export_flags.write_gnss = node.declare_parameter<bool>("write_gnss", true);
   params.export_flags.write_imu = node.declare_parameter<bool>("write_imu", true);
+  params.export_flags.write_camera = node.declare_parameter<bool>("write_camera", true);
 
   params.image_compression_format =
     node.declare_parameter<std::string>("image_compression_format", "png");

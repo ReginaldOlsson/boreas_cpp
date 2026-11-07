@@ -124,7 +124,7 @@ bool BoreasNode::load_ground_truth_data()
     }
   }
 
-  if (flags.write_ground_truth || flags.write_tf) {
+  if (flags.write_camera && (flags.write_ground_truth || flags.write_tf)) {
     if (!load_pose_csv(camera_pose_path, camera_poses_)) {
       RCLCPP_WARN(get_logger(), "Failed to load camera ground truth: %s", camera_pose_path.c_str());
     } else {
@@ -209,23 +209,55 @@ void BoreasNode::write_ground_truth_to_bag(
   const int64_t timestamp_us, const rclcpp::Time & stamp, const std::string & topic,
   const std::string & child_frame, const BoreasPose & pose)
 {
-  if (!map_projector_.ready) {
-    return;
-  }
-
-  Eigen::Isometry3d T_map_sensor;
   const Eigen::Isometry3d T_enu_sensor = pose_to_isometry(pose);
-  if (!compute_map_sensor_pose(timestamp_us, pose, T_enu_sensor, T_map_sensor)) {
-    RCLCPP_WARN_THROTTLE(
-      get_logger(), *get_clock(), 5000, "No GNSS sample for map-frame ground truth at %ld",
-      timestamp_us);
-    return;
+  Eigen::Isometry3d T_map_sensor = T_enu_sensor;
+  if (map_projector_.ready) {
+    if (!compute_map_sensor_pose(timestamp_us, pose, T_enu_sensor, T_map_sensor)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000, "No GNSS sample for map-frame ground truth at %ld",
+        timestamp_us);
+      return;
+    }
+  } else {
+    RCLCPP_WARN_ONCE(
+      get_logger(),
+      "Map projector not loaded; ground truth poses stay in the local ENU frame of the pose CSV");
   }
 
   nav_msgs::msg::Odometry odom =
     isometry_to_odometry(T_map_sensor, params_.frames.map, child_frame);
   odom.header.stamp = stamp;
   writer_->write(odom, topic, stamp);
+}
+
+void BoreasNode::write_odom_ground_truth_to_bag(
+  const int64_t timestamp_us, const rclcpp::Time & stamp, const BoreasPose & pose)
+{
+  if (!static_transforms_.ready) {
+    return;
+  }
+
+  const Eigen::Isometry3d T_enu_lidar = pose_to_isometry(pose);
+  Eigen::Isometry3d T_map_lidar = T_enu_lidar;
+  if (map_projector_.ready) {
+    if (!compute_map_sensor_pose(timestamp_us, pose, T_enu_lidar, T_map_lidar)) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 5000, "No GNSS sample for map-frame base_link odometry at %ld",
+        timestamp_us);
+      return;
+    }
+  } else {
+    RCLCPP_WARN_ONCE(
+      get_logger(),
+      "Map projector not loaded; /boreas/ground_truth/odom uses the local ENU frame of lidar_poses.csv");
+  }
+
+  const Eigen::Isometry3d T_base_lidar =
+    transform_to_isometry(static_transforms_.base_link_to_lidar.transform);
+  nav_msgs::msg::Odometry odom = map_base_link_odometry(
+    T_map_lidar, T_base_lidar, pose, params_.frames.map, params_.frames.base_link);
+  odom.header.stamp = stamp;
+  writer_->write(odom, params_.topics.odom_ground_truth, stamp);
 }
 
 bool BoreasNode::compute_map_sensor_pose(
@@ -370,6 +402,7 @@ void BoreasNode::write_lidar_frame(const int64_t timestamp_us, const std::string
     if (pose != nullptr) {
       write_ground_truth_to_bag(
         timestamp_us, stamp, params_.topics.lidar_ground_truth, params_.frames.lidar, *pose);
+      write_odom_ground_truth_to_bag(timestamp_us, stamp, *pose);
     }
   }
 
@@ -389,20 +422,22 @@ void BoreasNode::write_camera_frame(const int64_t timestamp_us, const std::strin
 {
   const rclcpp::Time stamp = id_to_stamp(timestamp_us);
 
-  const auto image_msg = load_compressed_image(
-    frame_path, params_.image_compression_format, params_.jpeg_quality);
-  if (!image_msg) {
-    RCLCPP_ERROR(get_logger(), "Failed to load image: %s", frame_path.c_str());
-    return;
+  if (params_.export_flags.write_camera) {
+    const auto image_msg = load_compressed_image(
+      frame_path, params_.image_compression_format, params_.jpeg_quality);
+    if (!image_msg) {
+      RCLCPP_ERROR(get_logger(), "Failed to load image: %s", frame_path.c_str());
+      return;
+    }
+
+    image_msg->header.frame_id = params_.frames.camera_lidar;
+    image_msg->header.stamp = stamp;
+    writer_->write(*image_msg, params_.topics.image, stamp);
+
+    auto camera_info = params_.camera_info;
+    camera_info.header.stamp = stamp;
+    writer_->write(camera_info, params_.topics.camera_info, stamp);
   }
-
-  image_msg->header.frame_id = params_.frames.camera_lidar;
-  image_msg->header.stamp = stamp;
-  writer_->write(*image_msg, params_.topics.image, stamp);
-
-  auto camera_info = params_.camera_info;
-  camera_info.header.stamp = stamp;
-  writer_->write(camera_info, params_.topics.camera_info, stamp);
 
   if (params_.export_flags.write_ground_truth) {
     const BoreasPose * pose = lookup_pose(camera_poses_, timestamp_us);
@@ -433,7 +468,10 @@ size_t BoreasNode::count_total_messages() const
       [this](const auto & entry) { return is_within_bag_duration(entry.first); }));
   };
 
-  size_t total = count_in_window(lidar_frames_) + count_in_window(camera_frames_);
+  size_t total = count_in_window(lidar_frames_);
+  if (params_.export_flags.write_camera) {
+    total += count_in_window(camera_frames_);
+  }
   if (params_.export_flags.write_gnss) {
     total += static_cast<size_t>(std::count_if(
       gnss_samples_.begin(), gnss_samples_.end(),
@@ -467,9 +505,11 @@ void BoreasNode::write_streams_chronologically()
   size_t imu_idx = 0;
   ProgressBar progress_bar(total_messages_);
 
+  const bool need_camera_stream = params_.export_flags.write_camera;
+
   while (rclcpp::ok()) {
     const bool has_lidar = lidar_idx < lidar_frames_.size();
-    const bool has_camera = camera_idx < camera_frames_.size();
+    const bool has_camera = need_camera_stream && camera_idx < camera_frames_.size();
     const bool has_gnss = params_.export_flags.write_gnss && gnss_idx < gnss_samples_.size();
     const bool has_imu = params_.export_flags.write_imu && imu_idx < imu_samples_.size();
 
@@ -553,6 +593,12 @@ void BoreasNode::index_camera_frames()
     return;
   }
 
+  if (!params_.export_flags.write_camera) {
+    RCLCPP_INFO(get_logger(), "Skipping camera frame indexing (write_camera=false)");
+    camera_index_ready_ = true;
+    return;
+  }
+
   try {
     camera_frames_ = index_dataset_directory(
       params_.paths.camera, params_.paths.data, "png");
@@ -571,17 +617,32 @@ void BoreasNode::export_bag_when_ready()
     return;
   }
 
-  if (lidar_frames_.empty() || camera_frames_.empty()) {
-    RCLCPP_ERROR(get_logger(), "No lidar or camera frames found, aborting.");
+  if (lidar_frames_.empty()) {
+    RCLCPP_ERROR(get_logger(), "No lidar frames found, aborting.");
+    writer_->close();
+    rclcpp::shutdown();
+    return;
+  }
+
+  const bool need_camera_stream = params_.export_flags.write_camera;
+  if (need_camera_stream && camera_frames_.empty()) {
+    RCLCPP_ERROR(get_logger(), "No camera frames found, aborting.");
     writer_->close();
     rclcpp::shutdown();
     return;
   }
 
   RCLCPP_INFO(get_logger(), "lidar size: %zu", lidar_frames_.size());
-  RCLCPP_INFO(get_logger(), "camera size: %zu", camera_frames_.size());
+  if (need_camera_stream) {
+    RCLCPP_INFO(get_logger(), "camera size: %zu", camera_frames_.size());
+  } else {
+    RCLCPP_INFO(get_logger(), "camera topics disabled (write_camera=false)");
+  }
 
-  time_origin_us_ = std::min(lidar_frames_.front().first, camera_frames_.front().first);
+  time_origin_us_ = lidar_frames_.front().first;
+  if (!camera_frames_.empty()) {
+    time_origin_us_ = std::min(time_origin_us_, camera_frames_.front().first);
+  }
   if (params_.export_flags.write_gnss && !gnss_samples_.empty()) {
     time_origin_us_ = std::min(time_origin_us_, gnss_samples_.front().timestamp_us);
   }
@@ -607,6 +668,15 @@ void BoreasNode::export_bag_when_ready()
   write_map_projector_info_to_bag();
 
   total_messages_ = count_total_messages();
+  const size_t lidar_in_window = static_cast<size_t>(std::count_if(
+    lidar_frames_.begin(), lidar_frames_.end(),
+    [this](const auto & entry) { return is_within_bag_duration(entry.first); }));
+  const size_t camera_in_window =
+    params_.export_flags.write_camera
+      ? static_cast<size_t>(std::count_if(
+          camera_frames_.begin(), camera_frames_.end(),
+          [this](const auto & entry) { return is_within_bag_duration(entry.first); }))
+      : 0;
   const size_t gnss_in_window =
     params_.export_flags.write_gnss
       ? static_cast<size_t>(std::count_if(
@@ -626,14 +696,8 @@ void BoreasNode::export_bag_when_ready()
   RCLCPP_INFO(
     get_logger(),
     "Writing up to %zu messages (%zu lidar, %zu camera, %zu gnss, %zu imu in window) to %s",
-    total_messages_,
-    static_cast<size_t>(std::count_if(
-      lidar_frames_.begin(), lidar_frames_.end(),
-      [this](const auto & entry) { return is_within_bag_duration(entry.first); })),
-    static_cast<size_t>(std::count_if(
-      camera_frames_.begin(), camera_frames_.end(),
-      [this](const auto & entry) { return is_within_bag_duration(entry.first); })),
-    gnss_in_window, imu_in_window, params_.output_bag.c_str());
+    total_messages_, lidar_in_window, camera_in_window, gnss_in_window, imu_in_window,
+    params_.output_bag.c_str());
 
   write_streams_chronologically();
   export_done_ = true;

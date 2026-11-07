@@ -4,8 +4,9 @@
     <arg name="tf_config" default="$(find-pkg-share boreas)/config/boreas_tf.yaml"/>
     <arg name="data_path" default="/home/mosal/Downloads/boreas-2020-11-26-13-58"/>
     <arg name="output_bag" default="/home/mosal/rosbags/boreas_bag"/>
-    <arg name="bag_duration_sec" default="200.0"/>
+    <arg name="bag_duration_sec" default="0.0"/>
     <arg name="map_projector_info_path" default=""/>
+    <arg name="write_camera" default="false"/>
 
 <!-- launch-prefix="xterm -e gdb args" -->
     <node pkg="boreas" exec="boreas" name="boreas" >
@@ -15,6 +16,7 @@
         <param name="output_bag" value="$(var output_bag)"/>
         <param name="bag_duration_sec" value="$(var bag_duration_sec)"/>
         <param name="map_projector_info_path" value="$(var map_projector_info_path)"/>
+        <param name="write_camera" value="$(var write_camera)"/>
     </node>
 
 </launch>

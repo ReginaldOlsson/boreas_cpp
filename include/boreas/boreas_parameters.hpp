@@ -30,6 +30,7 @@ struct TopicNames
   std::string clock;
   std::string lidar_ground_truth;
   std::string camera_ground_truth;
+  std::string odom_ground_truth;
   std::string gnss;
   std::string imu;
   std::string map_projector_info;
@@ -55,6 +56,7 @@ struct ExportFlags
   bool write_tf{true};
   bool write_gnss{true};
   bool write_imu{true};
+  bool write_camera{true};
   bool write_map_projector_info{true};
   bool use_precomputed_static_tf{true};
 };

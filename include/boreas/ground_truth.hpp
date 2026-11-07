@@ -479,6 +479,41 @@ inline nav_msgs::msg::Odometry isometry_to_odometry(
   return odom;
 }
 
+inline Eigen::Isometry3d transform_to_isometry(
+  const geometry_msgs::msg::Transform & transform)
+{
+  Eigen::Isometry3d isometry = Eigen::Isometry3d::Identity();
+  isometry.translation() =
+    Eigen::Vector3d(transform.translation.x, transform.translation.y, transform.translation.z);
+  const Eigen::Quaterniond quat(
+    transform.rotation.w, transform.rotation.x, transform.rotation.y, transform.rotation.z);
+  isometry.linear() = quat.normalized().toRotationMatrix();
+  return isometry;
+}
+
+/// Map-frame base_link pose from the lidar pose. Origins coincide, so ENU linear
+/// velocity rotates into base_link with R_map_base^T. Angular rates are lidar body rates.
+inline nav_msgs::msg::Odometry map_base_link_odometry(
+  const Eigen::Isometry3d & T_map_lidar, const Eigen::Isometry3d & T_base_lidar,
+  const BoreasPose & pose, const std::string & parent_frame, const std::string & child_frame)
+{
+  const Eigen::Isometry3d T_map_base = T_map_lidar * T_base_lidar.inverse();
+  nav_msgs::msg::Odometry odom = isometry_to_odometry(T_map_base, parent_frame, child_frame);
+
+  const Eigen::Vector3d v_enu(pose.vel_east, pose.vel_north, pose.vel_up);
+  const Eigen::Vector3d v_base = T_map_base.rotation().transpose() * v_enu;
+  const Eigen::Vector3d w_lidar(pose.angvel_x, pose.angvel_y, pose.angvel_z);
+  const Eigen::Vector3d w_base = T_base_lidar.rotation() * w_lidar;
+
+  odom.twist.twist.linear.x = v_base.x();
+  odom.twist.twist.linear.y = v_base.y();
+  odom.twist.twist.linear.z = v_base.z();
+  odom.twist.twist.angular.x = w_base.x();
+  odom.twist.twist.angular.y = w_base.y();
+  odom.twist.twist.angular.z = w_base.z();
+  return odom;
+}
+
 }  // namespace boreas
 
 #endif  // BOREAS_GROUND_TRUTH_HPP_

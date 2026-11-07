@@ -12,15 +12,17 @@
     clock_topic: "/clock"
     lidar_ground_truth_topic: "/boreas/ground_truth/lidar_odom"
     camera_ground_truth_topic: "/boreas/ground_truth/camera_odom"
+    odom_ground_truth_topic: "/boreas/ground_truth/odom"
     gnss_topic: "/boreas/gnss/fix"
     imu_topic: "/boreas/imu"
     imu_frame: "imu"
     imu_csv: "imu_raw.csv"   # under applanix/; use imu.csv + imu_frame: applanix for post-processed
     ground_truth_parent_frame: "map"
     write_ground_truth: true
-    write_tf: true
+    write_tf: false
     write_gnss: true
     write_imu: true
+    write_camera: false          # false = skip camera indexing and image/camera_info topics
   # image size
     width: 2448
     height: 2048
